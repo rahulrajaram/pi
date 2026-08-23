@@ -129,6 +129,17 @@ function isImageContentBlock(block: { type: string }): block is ImageContent {
 	return block.type === "image";
 }
 
+function parseFinalToolArguments(json: string | undefined): Record<string, unknown> {
+	if (!json) {
+		throw new SyntaxError("Tool call arguments were empty");
+	}
+	const parsed: unknown = JSON.parse(json);
+	if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+		throw new TypeError("Tool call arguments must be a JSON object");
+	}
+	return parsed as Record<string, unknown>;
+}
+
 function isReasoningDetailObject(detail: unknown): detail is Record<string, unknown> {
 	return typeof detail === "object" && detail !== null && !Array.isArray(detail);
 }
@@ -412,7 +423,14 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 							});
 						}
 					} else {
-						block.arguments = parseStreamingJson(block.partialArgs);
+						try {
+							block.arguments = parseFinalToolArguments(block.partialArgs);
+						} catch {
+							blocks.splice(contentIndex, 1);
+							throw new Error(
+								`Provider returned error: incomplete or invalid final arguments for tool call "${block.name || "unknown"}"`,
+							);
+						}
 					}
 					// Finalize in-place and strip the scratch buffers so replay only
 					// carries parsed arguments.
