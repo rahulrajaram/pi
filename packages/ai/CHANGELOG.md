@@ -21,6 +21,7 @@
 - Fixed Kimi OpenAI-compatible usage reporting so top-level `cached_tokens` count as cache reads instead of normal input tokens ([#8075](https://github.com/earendil-works/pi/issues/8075)).
 - Fixed Google Generative AI and Vertex AI custom models ignoring `thinkingLevelMap`, which dropped extended thinking controls ([#8135](https://github.com/earendil-works/pi/issues/8135)).
 - Fixed Xiaomi model catalog generation retaining shut-down MiMo V2 model names after models.dev marked them deprecated ([#8187](https://github.com/earendil-works/pi/issues/8187)).
+- Fixed summarization retry classification to treat undici transport-level aborts ("This/The operation was aborted") as retryable, so a connection drop during compaction summarization is recovered by retry instead of failing the whole compaction.
 
 ## [0.84.2] - 2026-08-14
 
