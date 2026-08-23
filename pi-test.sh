@@ -54,4 +54,8 @@ if [[ "$NO_ENV" == "true" ]]; then
   echo "Running without API keys..."
 fi
 
+# Mark this as a dev (source checkout) build so the version banner can flag it
+# as LOCAL instead of a released install.
+export PI_DEV_BRANCH="$(git -C "$SCRIPT_DIR" branch --show-current 2>/dev/null || true)"
+
 "$SCRIPT_DIR/node_modules/.bin/tsx" --tsconfig "$SCRIPT_DIR/tsconfig.json" "$SCRIPT_DIR/packages/coding-agent/src/cli.ts" ${ARGS[@]+"${ARGS[@]}"}
