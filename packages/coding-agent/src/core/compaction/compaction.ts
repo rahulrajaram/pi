@@ -699,16 +699,34 @@ export async function generateSummaryWithUsage(
 		callbacks,
 	);
 
-	if (response.stopReason === "error") {
-		throw new Error(`Summarization failed: ${response.errorMessage || "Unknown error"}`);
-	}
-	if (response.content.some((block) => block.type === "toolCall")) {
-		throw new Error("Summarization attempted to call a tool");
-	}
+	assertUsable(response, "Summarization");
 
 	const textContent = contentText(response.content);
 
 	return { text: textContent, usage: response.usage };
+}
+
+/**
+ * Throw if a summarization response cannot be persisted as a checkpoint.
+ *
+ * A `length` stop means the provider hit the output token limit and returned a
+ * partial summary. Persisting it would silently drop unseen context (the session
+ * resumes from a checkpoint that ends mid-sentence), so it is treated as a
+ * failure like `error` stops. See #7048.
+ */
+function assertUsable(response: AssistantMessage, purpose: string): void {
+	if (response.stopReason === "error") {
+		throw new Error(`${purpose} failed: ${response.errorMessage || "Unknown error"}`);
+	}
+	if (response.content.some((block) => block.type === "toolCall")) {
+		throw new Error(`${purpose} attempted to call a tool`);
+	}
+	if (response.stopReason === "length") {
+		throw new Error(
+			`${purpose} was truncated by the output token limit; the partial summary was discarded. ` +
+				"Increase the compaction reserve token budget or use a model with a larger output limit.",
+		);
+	}
 }
 
 // ============================================================================
@@ -983,12 +1001,7 @@ async function generateTurnPrefixSummary(
 		callbacks,
 	);
 
-	if (response.stopReason === "error") {
-		throw new Error(`Turn prefix summarization failed: ${response.errorMessage || "Unknown error"}`);
-	}
-	if (response.content.some((block) => block.type === "toolCall")) {
-		throw new Error("Turn prefix summarization attempted to call a tool");
-	}
+	assertUsable(response, "Turn prefix summarization");
 
 	return {
 		text: contentText(response.content),

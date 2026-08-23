@@ -156,6 +156,18 @@ describe("generateSummary reasoning options", () => {
 		);
 	});
 
+	it("rejects length-truncated conversation summaries instead of persisting them", async () => {
+		completeSimpleMock.mockResolvedValueOnce({
+			...mockSummaryResponse,
+			content: [{ type: "text", text: "## Goal\n...you went fro" }],
+			stopReason: "length",
+		});
+
+		await expect(generateSummaryWithUsage(messages, createModel(false), 2000, "test-key")).rejects.toThrow(
+			/was truncated by the output token limit/,
+		);
+	});
+
 	it("rejects tool calls from split-turn summaries", async () => {
 		completeSimpleMock.mockResolvedValueOnce(mockToolCallResponse);
 		const preparation: CompactionPreparation = {
@@ -170,6 +182,27 @@ describe("generateSummary reasoning options", () => {
 
 		await expect(compact(preparation, createModel(false), "test-key")).rejects.toThrow(
 			"Turn prefix summarization attempted to call a tool",
+		);
+	});
+
+	it("rejects length-truncated split-turn prefix summaries instead of persisting them", async () => {
+		completeSimpleMock.mockResolvedValueOnce({
+			...mockSummaryResponse,
+			content: [{ type: "text", text: "## Original Request\ncut of" }],
+			stopReason: "length",
+		});
+		const preparation: CompactionPreparation = {
+			firstKeptEntryId: "entry-keep",
+			messagesToSummarize: [],
+			turnPrefixMessages: messages,
+			isSplitTurn: true,
+			tokensBefore: 100,
+			fileOps: { read: new Set(), written: new Set(), edited: new Set() },
+			settings: { enabled: true, reserveTokens: 2000, keepRecentTokens: 20 },
+		};
+
+		await expect(compact(preparation, createModel(false), "test-key")).rejects.toThrow(
+			/Turn prefix summarization was truncated by the output token limit/,
 		);
 	});
 
