@@ -139,10 +139,11 @@ interface OpenAICompatCacheControl {
 
 type ResolvedOpenAICompletionsCompat = Omit<
 	Required<OpenAICompletionsCompat>,
-	"cacheControlFormat" | "deferredToolsMode"
+	"cacheControlFormat" | "deferredToolsMode" | "toolCallContentFormat"
 > & {
 	cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
 	deferredToolsMode?: OpenAICompletionsCompat["deferredToolsMode"];
+	toolCallContentFormat?: OpenAICompletionsCompat["toolCallContentFormat"];
 };
 
 type ResolvedChatTemplateKwargValue = string | number | boolean | null;
@@ -167,6 +168,97 @@ type ChatCompletionTextPartWithCacheControl = ChatCompletionContentPartText & {
 type ChatCompletionToolWithCacheControl = OpenAI.Chat.Completions.ChatCompletionTool & {
 	cache_control?: OpenAICompatCacheControl;
 };
+
+interface QwenFencedBlock {
+	language: string;
+	content: string;
+}
+
+const qwenShellFenceLanguages = new Set(["bash", "sh", "shell", "zsh"]);
+
+function parseQwenToolCallCandidate(
+	text: string,
+	availableToolNames: ReadonlySet<string>,
+): Pick<ToolCall, "name" | "arguments"> | null {
+	let payload: unknown;
+	try {
+		payload = JSON.parse(text);
+	} catch {
+		return null;
+	}
+
+	if (!payload || typeof payload !== "object") {
+		return null;
+	}
+
+	const candidate = payload as { name?: unknown; arguments?: unknown };
+	if (typeof candidate.name !== "string" || !candidate.arguments || typeof candidate.arguments !== "object") {
+		return null;
+	}
+	if (availableToolNames.size > 0 && !availableToolNames.has(candidate.name)) {
+		return null;
+	}
+
+	return {
+		name: candidate.name,
+		arguments: candidate.arguments as Record<string, unknown>,
+	};
+}
+
+function parseQwenFencedBlocks(text: string): QwenFencedBlock[] {
+	return [...text.matchAll(/```([^\r\n]*)\r?\n([\s\S]*?)\r?\n```/g)].map((match) => ({
+		language: match[1]?.trim().toLowerCase() ?? "",
+		content: match[2]?.trim() ?? "",
+	}));
+}
+
+function parseQwenShellFenceToolCall(
+	fence: QwenFencedBlock,
+	availableToolNames: ReadonlySet<string>,
+): Pick<ToolCall, "name" | "arguments"> | null {
+	if (!availableToolNames.has("bash")) {
+		return null;
+	}
+	if (!qwenShellFenceLanguages.has(fence.language)) {
+		return null;
+	}
+	if (!fence.content || fence.content.startsWith("{")) {
+		return null;
+	}
+
+	return {
+		name: "bash",
+		arguments: { command: fence.content },
+	};
+}
+
+function parseQwenResponseToolCall(
+	text: string,
+	availableToolNames: ReadonlySet<string>,
+): Pick<ToolCall, "name" | "arguments"> | null {
+	const match = text.match(/<(response|tool_call|function_call|tools)>\s*([\s\S]*?)\s*<\/\1>/);
+	const rawJsonText = match ? (match[2]?.trim() ?? "") : text.trim();
+	const fencedBlocks = parseQwenFencedBlocks(rawJsonText);
+	const fullFence = fencedBlocks.length === 1 && rawJsonText.startsWith("```") && rawJsonText.endsWith("```");
+	const jsonText = fullFence ? (fencedBlocks[0]?.content ?? rawJsonText) : rawJsonText;
+	const directToolCall = parseQwenToolCallCandidate(jsonText, availableToolNames);
+	if (directToolCall) {
+		return directToolCall;
+	}
+
+	if (match) {
+		return null;
+	}
+
+	if (fencedBlocks.length !== 1) {
+		return null;
+	}
+
+	return (
+		parseQwenToolCallCandidate(fencedBlocks[0]?.content ?? "", availableToolNames) ??
+		parseQwenShellFenceToolCall(fencedBlocks[0] ?? { language: "", content: "" }, availableToolNames)
+	);
+}
 
 function resolveCacheRetention(cacheRetention?: CacheRetention, env?: ProviderEnv): CacheRetention {
 	if (cacheRetention) {
@@ -239,6 +331,7 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 			const toolCallBlocksByIndex = new Map<number, StreamingToolCallBlock>();
 			const toolCallBlocksById = new Map<string, StreamingToolCallBlock>();
 			const pendingReasoningDetailsByToolCallId = new Map<string, string>();
+			const availableToolNames = new Set(context.tools?.map((tool) => tool.name) ?? []);
 			const blocks = output.content as StreamingBlock[];
 			const getContentIndex = (block: StreamingBlock) => blocks.indexOf(block);
 			const finishBlock = (block: StreamingBlock) => {
@@ -247,6 +340,37 @@ export const stream: StreamFunction<"openai-completions", OpenAICompletionsOptio
 					return;
 				}
 				if (block.type === "text") {
+					if (compat.toolCallContentFormat === "qwen-response") {
+						const parsedToolCall = parseQwenResponseToolCall(block.text, availableToolNames);
+						if (parsedToolCall) {
+							const toolCallBlock: StreamingToolCallBlock = {
+								type: "toolCall",
+								id: `call_${Date.now()}_${contentIndex}`,
+								name: parsedToolCall.name,
+								arguments: parsedToolCall.arguments,
+							};
+							blocks[contentIndex] = toolCallBlock;
+							output.stopReason = "toolUse";
+							stream.push({
+								type: "toolcall_start",
+								contentIndex,
+								partial: output,
+							});
+							stream.push({
+								type: "toolcall_delta",
+								contentIndex,
+								delta: JSON.stringify(parsedToolCall.arguments),
+								partial: output,
+							});
+							stream.push({
+								type: "toolcall_end",
+								contentIndex,
+								toolCall: toolCallBlock,
+								partial: output,
+							});
+							return;
+						}
+					}
 					stream.push({
 						type: "text_end",
 						contentIndex,
@@ -1304,6 +1428,7 @@ function detectCompat(model: Model<"openai-completions">): ResolvedOpenAIComplet
 		vercelGatewayRouting: {},
 		chatTemplateKwargs: {},
 		zaiToolStream: false,
+		toolCallContentFormat: undefined,
 		supportsStrictMode: !isMoonshot && !isTogether && !isCloudflareAiGateway && !isNvidia,
 		cacheControlFormat,
 		sendSessionAffinityHeaders: false,
@@ -1345,6 +1470,7 @@ function getCompat(model: Model<"openai-completions">): ResolvedOpenAICompletion
 		vercelGatewayRouting: model.compat.vercelGatewayRouting ?? detected.vercelGatewayRouting,
 		chatTemplateKwargs: model.compat.chatTemplateKwargs ?? detected.chatTemplateKwargs,
 		zaiToolStream: model.compat.zaiToolStream ?? detected.zaiToolStream,
+		toolCallContentFormat: model.compat.toolCallContentFormat ?? detected.toolCallContentFormat,
 		supportsStrictMode: model.compat.supportsStrictMode ?? detected.supportsStrictMode,
 		cacheControlFormat: model.compat.cacheControlFormat ?? detected.cacheControlFormat,
 		sendSessionAffinityHeaders: model.compat.sendSessionAffinityHeaders ?? detected.sendSessionAffinityHeaders,

@@ -34,6 +34,9 @@ describe("buildSystemPrompt", () => {
 					bash: "Execute bash commands",
 					edit: "Make surgical edits",
 					write: "Create or overwrite files",
+					grep: "Search file contents",
+					find: "Find files",
+					ls: "List directories",
 				},
 				contextFiles: [],
 				skills: [],
@@ -44,6 +47,9 @@ describe("buildSystemPrompt", () => {
 			expect(prompt).toContain("- bash:");
 			expect(prompt).toContain("- edit:");
 			expect(prompt).toContain("- write:");
+			expect(prompt).toContain("- grep:");
+			expect(prompt).toContain("- find:");
+			expect(prompt).toContain("- ls:");
 		});
 
 		test("instructs models to resolve pi docs and examples under absolute base paths", () => {

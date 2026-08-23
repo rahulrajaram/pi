@@ -19,8 +19,9 @@ const emptyUsage: Usage = {
 	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
 };
 
-const compat: Omit<Required<OpenAICompletionsCompat>, "deferredToolsMode"> & {
+const compat: Omit<Required<OpenAICompletionsCompat>, "deferredToolsMode" | "toolCallContentFormat"> & {
 	deferredToolsMode?: OpenAICompletionsCompat["deferredToolsMode"];
+	toolCallContentFormat?: OpenAICompletionsCompat["toolCallContentFormat"];
 } = {
 	supportsStore: true,
 	supportsDeveloperRole: true,
@@ -36,6 +37,7 @@ const compat: Omit<Required<OpenAICompletionsCompat>, "deferredToolsMode"> & {
 	vercelGatewayRouting: {},
 	chatTemplateKwargs: {},
 	zaiToolStream: false,
+	toolCallContentFormat: undefined,
 	supportsStrictMode: true,
 	cacheControlFormat: "anthropic",
 	sendSessionAffinityHeaders: false,

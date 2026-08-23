@@ -102,6 +102,27 @@ describe("ExtensionRunner", () => {
 	};
 
 	describe("project_trust", () => {
+		it("loads package imports that use pi-agent-core internally", async () => {
+			const extensionPath = path.join(extensionsDir, "agent-import.ts");
+			fs.writeFileSync(
+				extensionPath,
+				`import { Agent } from "@earendil-works/pi-agent-core";
+
+export default function(pi) {
+	pi.registerCommand("agent-import", {
+		description: Agent.name,
+		handler: async () => {},
+	});
+}`,
+			);
+
+			const extensionsResult = await loadExtensions([extensionPath], tempDir);
+
+			expect(extensionsResult.errors).toEqual([]);
+			expect(extensionsResult.extensions).toHaveLength(1);
+			expect(extensionsResult.extensions[0]?.commands.has("agent-import")).toBe(true);
+		});
+
 		it("continues past undecided handlers and returns the first yes/no decision", async () => {
 			const undecidedPath = path.join(extensionsDir, "undecided.ts");
 			const decidedPath = path.join(extensionsDir, "decided.ts");

@@ -36,14 +36,19 @@ const compat = {
 	vercelGatewayRouting: {},
 	chatTemplateKwargs: {},
 	zaiToolStream: false,
+	toolCallContentFormat: undefined,
 	supportsStrictMode: true,
 	cacheControlFormat: undefined,
 	sendSessionAffinityHeaders: false,
 	sessionAffinityFormat: "openai",
 	supportsLongCacheRetention: true,
-} satisfies Omit<Required<OpenAICompletionsCompat>, "cacheControlFormat" | "deferredToolsMode"> & {
+} satisfies Omit<
+	Required<OpenAICompletionsCompat>,
+	"cacheControlFormat" | "deferredToolsMode" | "toolCallContentFormat"
+> & {
 	cacheControlFormat?: OpenAICompletionsCompat["cacheControlFormat"];
 	deferredToolsMode?: OpenAICompletionsCompat["deferredToolsMode"];
+	toolCallContentFormat?: OpenAICompletionsCompat["toolCallContentFormat"];
 };
 
 function buildModel(baseUrl = "http://127.0.0.1:1"): Model<"openai-completions"> {
@@ -210,6 +215,195 @@ describe("openai-completions thinking-as-text replay", () => {
 
 			const terminalEvent = events.at(-1);
 			expect(terminalEvent?.type).toBe("done");
+		} finally {
+			server.close();
+			await once(server, "close");
+		}
+	});
+
+	it.each([
+		['<response>\n{"name":"read","arguments":{"path":"README.md"}}\n</response>'],
+		['<tool_call>\n{"name":"read","arguments":{"path":"README.md"}}\n</tool_call>'],
+		['<function_call>\n{"name":"read","arguments":{"path":"README.md"}}\n</function_call>'],
+		['<tools>\n{"name":"read","arguments":{"path":"README.md"}}\n</tools>'],
+		['{"name":"read","arguments":{"path":"README.md"}}'],
+		['```json\n{"name":"read","arguments":{"path":"README.md"}}\n```'],
+		[
+			'To inspect the package, I will read the README.\n\n```bash\n  {"name":"read","arguments":{"path":"README.md"}}\n```\n\nThis will show the package details.',
+		],
+	])("converts qwen tool content to a tool call when compat is enabled", async (content) => {
+		const server = http.createServer(async (req, res) => {
+			if (req.method !== "POST" || req.url !== "/chat/completions") {
+				res.writeHead(404).end();
+				return;
+			}
+
+			for await (const _chunk of req) {
+				// Drain the request body.
+			}
+
+			res.writeHead(200, {
+				"content-type": "text/event-stream",
+				"cache-control": "no-cache",
+				connection: "keep-alive",
+			});
+			res.write(
+				`data: ${JSON.stringify({
+					id: "chatcmpl-qwen",
+					object: "chat.completion.chunk",
+					created: 0,
+					model: "repro-model",
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								content,
+							},
+							finish_reason: null,
+						},
+					],
+				})}\n\n`,
+			);
+			res.write(
+				`data: ${JSON.stringify({
+					id: "chatcmpl-qwen",
+					object: "chat.completion.chunk",
+					created: 0,
+					model: "repro-model",
+					choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+					usage: { prompt_tokens: 1, completion_tokens: 1 },
+				})}\n\n`,
+			);
+			res.write("data: [DONE]\n\n");
+			res.end();
+		});
+
+		server.listen(0, "127.0.0.1");
+		await once(server, "listening");
+
+		try {
+			const { port } = server.address() as AddressInfo;
+			const model = buildModel(`http://127.0.0.1:${port}`);
+			model.compat = { ...compat, toolCallContentFormat: "qwen-response" };
+			const events = await collectEvents(
+				streamOpenAICompletions(
+					model,
+					{
+						messages: [{ role: "user", content: "read the readme", timestamp: 1 }],
+						tools: [{ name: "read", description: "Read a file", parameters: { type: "object", properties: {} } }],
+					},
+					{ apiKey: "test-key" },
+				),
+			);
+
+			const terminalEvent = events.at(-1);
+			expect(terminalEvent?.type).toBe("done");
+			if (terminalEvent?.type !== "done") {
+				throw new Error("expected done event");
+			}
+			expect(terminalEvent.reason).toBe("toolUse");
+			expect(terminalEvent.message.content).toEqual([
+				{
+					type: "toolCall",
+					id: expect.stringMatching(/^call_/),
+					name: "read",
+					arguments: { path: "README.md" },
+				},
+			]);
+		} finally {
+			server.close();
+			await once(server, "close");
+		}
+	});
+
+	it("converts a qwen shell fence to a bash tool call when bash is available", async () => {
+		const server = http.createServer(async (req, res) => {
+			if (req.method !== "POST" || req.url !== "/chat/completions") {
+				res.writeHead(404).end();
+				return;
+			}
+
+			for await (const _chunk of req) {
+				// Drain the request body.
+			}
+
+			res.writeHead(200, {
+				"content-type": "text/event-stream",
+				"cache-control": "no-cache",
+				connection: "keep-alive",
+			});
+			res.write(
+				`data: ${JSON.stringify({
+					id: "chatcmpl-qwen",
+					object: "chat.completion.chunk",
+					created: 0,
+					model: "repro-model",
+					choices: [
+						{
+							index: 0,
+							delta: {
+								role: "assistant",
+								content:
+									"Let's inspect the directory first.\n\n```bash\nls -la ~/Documents/amoebum\n```\n\nThen I can choose what to read.",
+							},
+							finish_reason: null,
+						},
+					],
+				})}\n\n`,
+			);
+			res.write(
+				`data: ${JSON.stringify({
+					id: "chatcmpl-qwen",
+					object: "chat.completion.chunk",
+					created: 0,
+					model: "repro-model",
+					choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+					usage: { prompt_tokens: 1, completion_tokens: 1 },
+				})}\n\n`,
+			);
+			res.write("data: [DONE]\n\n");
+			res.end();
+		});
+
+		server.listen(0, "127.0.0.1");
+		await once(server, "listening");
+
+		try {
+			const { port } = server.address() as AddressInfo;
+			const model = buildModel(`http://127.0.0.1:${port}`);
+			model.compat = { ...compat, toolCallContentFormat: "qwen-response" };
+			const events = await collectEvents(
+				streamOpenAICompletions(
+					model,
+					{
+						messages: [{ role: "user", content: "inspect amoebum", timestamp: 1 }],
+						tools: [
+							{
+								name: "bash",
+								description: "Run a bash command",
+								parameters: { type: "object", properties: {} },
+							},
+						],
+					},
+					{ apiKey: "test-key" },
+				),
+			);
+
+			const terminalEvent = events.at(-1);
+			expect(terminalEvent?.type).toBe("done");
+			if (terminalEvent?.type !== "done") {
+				throw new Error("expected done event");
+			}
+			expect(terminalEvent.reason).toBe("toolUse");
+			expect(terminalEvent.message.content).toEqual([
+				{
+					type: "toolCall",
+					id: expect.stringMatching(/^call_/),
+					name: "bash",
+					arguments: { command: "ls -la ~/Documents/amoebum" },
+				},
+			]);
 		} finally {
 			server.close();
 			await once(server, "close");

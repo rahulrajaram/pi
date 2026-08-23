@@ -98,6 +98,7 @@ const OpenAICompletionsCompatSchema = Type.Object({
 	openRouterRouting: Type.Optional(OpenRouterRoutingSchema),
 	vercelGatewayRouting: Type.Optional(VercelGatewayRoutingSchema),
 	supportsStrictMode: Type.Optional(Type.Boolean()),
+	toolCallContentFormat: Type.Optional(Type.Literal("qwen-response")),
 	sendSessionAffinityHeaders: Type.Optional(Type.Boolean()),
 	deferredToolsMode: Type.Optional(Type.Literal("kimi")),
 	sessionAffinityFormat: Type.Optional(
