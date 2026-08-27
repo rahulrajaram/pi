@@ -69,7 +69,7 @@ describe("#7048 compaction rejects truncated (length-stop) summaries", () => {
 			return stream;
 		};
 
-		await expect(harness.session.compact()).rejects.toThrow(/truncated by the output token limit/);
+		await expect(harness.session.compact()).rejects.toThrow(/generation hit the token cap/);
 
 		// Nothing was persisted: the branch has no compaction entry.
 		const branch = harness.sessionManager.getBranch();
@@ -79,6 +79,6 @@ describe("#7048 compaction rejects truncated (length-stop) summaries", () => {
 		const compactionEnd = harness.eventsOfType("compaction_end").at(-1);
 		expect(compactionEnd).toBeDefined();
 		expect(compactionEnd).toMatchObject({ reason: "manual", result: undefined, aborted: false });
-		expect(compactionEnd?.errorMessage).toContain("truncated by the output token limit");
+		expect(compactionEnd?.errorMessage).toContain("generation hit the token cap");
 	});
 });
