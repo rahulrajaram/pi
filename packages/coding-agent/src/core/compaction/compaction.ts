@@ -562,6 +562,20 @@ const UPDATE_SUMMARIZATION_PROMPT = `The messages above are NEW conversation mes
 
 ${UPDATE_SUMMARIZATION_INSTRUCTIONS}`;
 
+/**
+ * Returns an error message when a summarization response cannot safely be persisted.
+ * A length stop contains partial text and must not become a session checkpoint.
+ */
+export function getSummarizationFailure(response: AssistantMessage, label: string): string | undefined {
+	if (response.stopReason === "error") {
+		return `${label} failed: ${response.errorMessage || "Unknown error"}`;
+	}
+	if (response.stopReason === "length") {
+		return `${label} failed: generation hit the token cap and the summary is incomplete`;
+	}
+	return undefined;
+}
+
 function createSummarizationOptions(
 	model: Model<any>,
 	maxTokens: number,
@@ -600,7 +614,6 @@ export async function completeSummarization(
 		...options,
 		cacheRetention: "none",
 		sessionId: options.sessionId ?? uuidv7(),
-		toolChoice: "none",
 	};
 	const produce = async (): Promise<AssistantMessage> =>
 		streamFn
@@ -723,34 +736,17 @@ export async function generateSummaryWithUsage(
 		callbacks,
 	);
 
-	assertUsable(response, "Summarization");
+	const failure = getSummarizationFailure(response, "Summarization");
+	if (failure) {
+		throw new Error(failure);
+	}
+	if (response.content.some((block) => block.type === "toolCall")) {
+		throw new Error("Summarization attempted to call a tool");
+	}
 
 	const textContent = contentText(response.content);
 
 	return { text: textContent, usage: response.usage };
-}
-
-/**
- * Throw if a summarization response cannot be persisted as a checkpoint.
- *
- * A `length` stop means the provider hit the output token limit and returned a
- * partial summary. Persisting it would silently drop unseen context (the session
- * resumes from a checkpoint that ends mid-sentence), so it is treated as a
- * failure like `error` stops. See #7048.
- */
-function assertUsable(response: AssistantMessage, purpose: string): void {
-	if (response.stopReason === "error") {
-		throw new Error(`${purpose} failed: ${response.errorMessage || "Unknown error"}`);
-	}
-	if (response.content.some((block) => block.type === "toolCall")) {
-		throw new Error(`${purpose} attempted to call a tool`);
-	}
-	if (response.stopReason === "length") {
-		throw new Error(
-			`${purpose} was truncated by the output token limit; the partial summary was discarded. ` +
-				"Increase the compaction reserve token budget or use a model with a larger output limit.",
-		);
-	}
 }
 
 // ============================================================================
@@ -1151,7 +1147,13 @@ async function generateTurnPrefixSummary(
 		callbacks,
 	);
 
-	assertUsable(response, "Turn prefix summarization");
+	const failure = getSummarizationFailure(response, "Turn prefix summarization");
+	if (failure) {
+		throw new Error(failure);
+	}
+	if (response.content.some((block) => block.type === "toolCall")) {
+		throw new Error("Turn prefix summarization attempted to call a tool");
+	}
 
 	return {
 		text: contentText(response.content),
