@@ -1,8 +1,16 @@
-# pi-stack migration plan (ratified, not yet executed)
+# pi-stack migration plan
 
-Status: PLANNED. Do not execute while other pi sessions are running from
-`/home/rahul/Documents/pi`. This file is the authoritative record of the
-principal's decisions; execute it as written unless the principal overrides.
+Status: **EXECUTED 2026-09-07.** All steps below were performed verbatim.
+Outcome: repo now at `~/Documents/pi-stack/pi` (git history, remotes, and
+working tree intact); siblings `pi-mcp-adapter`, `pi-subagents`,
+`pi-glm-deepseek-loop-harness` moved in; loop `target/` origin repointed to
+the new repo path and run-root-v4 verifies (`metabuilder run status` ok);
+global extensions snapshotted+versioned at `~/Documents/pi-stack/agent-extensions`
+(runtime dir remains authoritative for loading; `sync-pi-stack` checks drift);
+skill paths updated. Transitional symlink `~/Documents/pi -> pi-stack/pi` is
+IN PLACE — remove it once nothing depends on the old path. First session
+started from the new canonical path must re-trust the project (trust.json is
+path-keyed); sessions via the old symlink path remain trusted.
 
 ## Ratified decisions (principal, this session)
 

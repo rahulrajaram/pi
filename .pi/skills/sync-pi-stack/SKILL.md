@@ -21,10 +21,11 @@ drift report).
 
 | Layer | Source of truth | Executing artifact |
 |---|---|---|
-| pi binary | `/home/rahul/Documents/pi` (branch: current working branch) | `~/nodeenv2251-311/bin/pi` via `~/.local/bin/pi` nudge wrapper |
+| pi binary | `/home/rahul/Documents/pi-stack/pi` (branch: current working branch) | `~/nodeenv2251-311/bin/pi` via `~/.local/bin/pi` nudge wrapper |
 | pi packages | `packages` list in `~/.pi/agent/settings.json` | `~/.pi/agent/npm/node_modules/` |
 | Local-source plugins | e.g. `/home/rahul/Documents/pi-mcp-adapter` | same node_modules copy |
-| Extensions (global) | `~/.pi/agent/extensions/*.ts` | loaded by pi at startup |
+| Extensions (global) | `~/Documents/pi-stack/agent-extensions` (versioned copy) | `~/.pi/agent/extensions/*.ts` (runtime; loaded by pi at startup) |
+| GLM/DeepSeek loop harness | `~/Documents/pi-stack/pi-glm-deepseek-loop-harness` (self-committed) | MetaBuilder run-roots under its `run-root-v*` dirs |
 | MCP servers | `~/.pi/agent/mcp.json` | the command each entry points at (local builds live under their own repos, e.g. `/home/rahul/Documents/cultivar/target/release/cultivar-mcp`) |
 
 `pi install <source>`, `pi update [self|extensions|<source>]`, and `pi list`
@@ -37,7 +38,7 @@ Collect and report BEFORE changing anything:
 
 ```bash
 ~/nodeenv2251-311/bin/pi --version          # executing binary version
-cd /home/rahul/Documents/pi
+cd /home/rahul/Documents/pi-stack/pi
 git fetch origin main
 git rev-list --left-right --count HEAD...origin/main   # binary drift vs upstream
 grep '"version"' packages/coding-agent/package.json    # source version
@@ -64,13 +65,22 @@ for name, s in json.load(open(os.path.expanduser('~/.pi/agent/mcp.json')))['mcpS
 EOF
 ```
 
+Global-extension drift — runtime vs versioned copy (report only; the runtime
+(`~/.pi/agent/extensions`) is authoritative for loading, the pi-stack copy is
+the versioned record):
+
+```bash
+diff -rq ~/.pi/agent/extensions ~/Documents/pi-stack/agent-extensions \
+  --exclude=.git --exclude=node_modules && echo EXTENSIONS-IN-SYNC
+```
+
 Surface every drift in the report. Do not proceed silently past a MISSING mcp
 command — report it and ask.
 
 ## Phase 2 — pi binary (update-pi procedure)
 
 Run the update-pi skill flow completely: read
-`/home/rahul/Documents/pi/.pi/skills/update-pi/SKILL.md` and execute its
+`/home/rahul/Documents/pi-stack/pi/.pi/skills/update-pi/SKILL.md` and execute its
 steps 1-8 (fetch/merge upstream, resolve conflicts, build, verify, commit,
 local-release install into the nodeenv). Never reset or discard local commits.
 If the user asked only to refresh plugins/MCPs and drift shows zero incoming
@@ -91,7 +101,15 @@ phase 3 and say so.
 - git-pinned packages (`git:...@<sha>`) advance only when the user asks; report
   the pinned sha vs the repo's default branch in the phase-1 manifest.
 - Global extensions (`~/.pi/agent/extensions/*.ts`) are source; nothing to
-  build — but after a binary update, confirm they still load (phase 4).
+  build. If phase 1 showed drift, copy changed files into
+  `~/Documents/pi-stack/agent-extensions` and commit there so the versioned
+  copy stays truthful.
+- The GLM/DeepSeek loop harness lives at
+  `~/Documents/pi-stack/pi-glm-deepseek-loop-harness`; its `target/` checkout
+  must track this repo (check with
+  `git -C .../pi-glm-deepseek-loop-harness/target remote get-url origin`)
+  before running any governed epoch. It is out of scope for routine stack
+  syncs — only verify the remote binding.
 
 ## Phase 4 — Verify-after (executing artifacts)
 

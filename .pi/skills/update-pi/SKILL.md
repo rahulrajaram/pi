@@ -12,7 +12,7 @@ description: >
 
 ## Environment facts (verify, don't assume)
 
-- **Repo:** `/home/rahul/Documents/pi` (monorepo, packages/ai, packages/coding-agent, etc.)
+- **Repo:** `/home/rahul/Documents/pi-stack/pi` (monorepo, packages/ai, packages/coding-agent, etc.)
 - **Working branch:** usually `fix/compaction-and-tool-arguments` — carry local commits
   forward by merging upstream, never by resetting.
 - **Remotes:** `origin` = upstream (earendil-works/pi), `fork` = user's GitHub fork.
@@ -26,7 +26,7 @@ description: >
 ### 1. Fetch and assess drift
 
 ```bash
-cd /home/rahul/Documents/pi
+cd /home/rahul/Documents/pi-stack/pi
 git fetch origin main
 git rev-list --left-right --count HEAD...origin/main   # local-only vs upstream-only commits
 git log --oneline HEAD..origin/main                    # what's incoming (releases, model data)
@@ -97,7 +97,7 @@ git commit   # message: merge(upstream): bring <branch> up to date with origin/m
 ### 7. Install the local build into the nodeenv
 
 ```bash
-cd /home/rahul/Documents/pi
+cd /home/rahul/Documents/pi-stack/pi
 node scripts/local-release.mjs --skip-check --skip-test --skip-install \
   --out /tmp/pi-local-tarballs --force
 cd /tmp/pi-local-tarballs/tarballs
