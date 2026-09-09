@@ -45,3 +45,4 @@ collect.sh
 
 # Self-contained governed harness for the GLM/DeepSeek loop (own git repos; never part of pi)
 pi-glm-deepseek-loop-harness/
+packages/agent/docs/extensions/pi-server-artifact/index.md

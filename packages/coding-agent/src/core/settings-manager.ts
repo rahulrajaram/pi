@@ -1,5 +1,5 @@
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
-import type { Transport } from "@earendil-works/pi-ai";
+import { DEFAULT_MAX_AGENT_RETRY_DELAY_MS, type Transport } from "@earendil-works/pi-ai";
 import type { TuiMode as RendererTuiMode, ScrollViewScrollbar, TerminalCapabilities } from "@earendil-works/pi-tui";
 import { randomUUID } from "crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "fs";
@@ -31,6 +31,7 @@ export interface RetrySettings {
 	enabled?: boolean; // default: true
 	maxRetries?: number; // default: 3
 	baseDelayMs?: number; // default: 2000 (exponential backoff: 2s, 4s, 8s)
+	maxAgentDelayMs?: number; // default: 60000
 	provider?: ProviderRetrySettings;
 }
 
@@ -105,7 +106,7 @@ export interface Settings {
 	branchSummary?: BranchSummarySettings;
 	retry?: RetrySettings;
 	hideThinkingBlock?: boolean;
-	showCacheMissNotices?: boolean; // default: false - show prompt-cache miss and compaction cost notices
+	showCacheMissNotices?: boolean; // default: false - show cache cost and provider recovery notices
 	externalEditor?: string; // Command for Ctrl+G external editor; takes precedence over VISUAL/EDITOR
 	shellPath?: string; // Custom shell path (e.g., for Cygwin users on Windows); supports leading ~ expansion
 	quietStartup?: boolean;
@@ -879,11 +880,12 @@ export class SettingsManager {
 		this.save();
 	}
 
-	getRetrySettings(): { enabled: boolean; maxRetries: number; baseDelayMs: number } {
+	getRetrySettings(): { enabled: boolean; maxRetries: number; baseDelayMs: number; maxAgentDelayMs: number } {
 		return {
 			enabled: this.getRetryEnabled(),
 			maxRetries: this.settings.retry?.maxRetries ?? 3,
 			baseDelayMs: this.settings.retry?.baseDelayMs ?? 2000,
+			maxAgentDelayMs: this.settings.retry?.maxAgentDelayMs ?? DEFAULT_MAX_AGENT_RETRY_DELAY_MS,
 		};
 	}
 
