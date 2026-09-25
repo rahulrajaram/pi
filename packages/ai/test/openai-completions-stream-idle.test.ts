@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { stream as streamOpenAICompletions } from "../src/api/openai-completions.ts";
 import type { AssistantMessageEvent, Model } from "../src/types.ts";
 import { isRetryableAssistantError } from "../src/utils/retry.ts";
+import { normalizeContext } from "../src/utils/transcript.ts";
 
 const mockState = vi.hoisted(() => ({
 	chunkSets: [] as unknown[][],
@@ -68,7 +69,7 @@ async function collectEvents(streamIdleTimeoutMs?: number): Promise<AssistantMes
 	const events: AssistantMessageEvent[] = [];
 	const eventStream = streamOpenAICompletions(
 		model(),
-		{ messages: [{ role: "user", content: "hello", timestamp: 1 }] },
+		normalizeContext({ messages: [{ role: "user", content: "hello", timestamp: 1 }] }),
 		{ apiKey: "test", ...(streamIdleTimeoutMs === undefined ? {} : { streamIdleTimeoutMs }) },
 	);
 	for await (const event of eventStream) events.push(event);
